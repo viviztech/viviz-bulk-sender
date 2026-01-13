@@ -17,6 +17,8 @@ Railway will host:
 3. **PostgreSQL** - Primary database (managed by Railway)
 4. **Redis** - Celery broker and caching (managed by Railway)
 
+Each service has its own `railway.json` configuration file in its subdirectory.
+
 ---
 
 ## Step 1: Prepare Your Repository
@@ -45,9 +47,11 @@ viviz-bulk-sender/
 │   ├── railway.json
 │   ├── package.json
 │   └── vite.config.ts
-├── railway.json (root)
-└── docker-compose.yml (optional for local testing)
+├── docker-compose.yml (optional for local testing)
+└── README.md
 ```
+
+> **Note**: Railway detects services from subdirectories. Each service (backend, frontend) has its own `railway.json` configuration. No root-level `railway.json` is needed.
 
 ---
 
@@ -399,10 +403,12 @@ After deployment, you'll have:
 
 | Service | URL |
 |---------|-----|
-| Backend API | https://viviz-backend.up.railway.app |
-| API Docs | https://viviz-backend.up.railway.app/api/v1/schema/swagger/ |
-| Admin Panel | https://viviz-backend.up.railway.app/admin/ |
-| Frontend | https://viviz-frontend.up.railway.app |
+| Backend API | https://viviz-api.up.railway.app |
+| API Docs | https://viviz-api.up.railway.app/api/v1/schema/swagger/ |
+| Admin Panel | https://viviz-api.up.railway.app/admin/ |
+| Frontend | https://viviz.up.railway.app |
+
+Each service is configured via its own `railway.json` in the subdirectory.
 
 ---
 
