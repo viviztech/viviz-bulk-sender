@@ -1,4 +1,4 @@
-# Production Dockerfile for Railway
+# Production Dockerfile
 FROM python:3.11-slim
 
 # Set environment variables
@@ -29,11 +29,8 @@ COPY . .
 # Collect static files
 RUN python manage.py collectstatic --noinput 2>/dev/null || true
 
-# Run migrations
-RUN python manage.py migrate --noinput 2>/dev/null || true
-
 # Expose port
-EXPOSE $PORT
+EXPOSE 8000
 
 # Start command
-CMD ["gunicorn", "--config", "gunicorn.conf.py", "config.wsgi:application", "--bind", "0.0.0.0:$PORT"]
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "config.wsgi:application", "--bind", "0.0.0.0:8000"]
