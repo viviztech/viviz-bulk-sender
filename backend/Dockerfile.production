@@ -1,0 +1,39 @@
+# Production Dockerfile for Railway
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DJANGO_SETTINGS_MODULE=config.settings.production
+
+# Set work directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create logs and media directories
+RUN mkdir -p /app/logs /app/mediafiles /app/staticfiles
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt gunicorn
+
+# Copy project code
+COPY . .
+
+# Collect static files
+RUN python manage.py collectstatic --noinput 2>/dev/null || true
+
+# Run migrations
+RUN python manage.py migrate --noinput 2>/dev/null || true
+
+# Expose port
+EXPOSE $PORT
+
+# Start command
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "config.wsgi:application", "--bind", "0.0.0.0:$PORT"]
