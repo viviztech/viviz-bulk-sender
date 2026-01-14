@@ -42,7 +42,6 @@ drf-spectacular>=0.26.0
 # Utilities
 python-dateutil>=2.8.2
 pytz>=2024.1
-uuid>=1.30
 
 # Testing
 pytest>=7.4.0
