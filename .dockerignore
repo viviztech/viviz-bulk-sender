@@ -1,0 +1,25 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Environment
+.env
+.env.example
+
+# Documentation
+docs
+README.md
+
+# Backend (handled by backend/.dockerignore)
+backend/.env
+backend/.env.example
+
+# Frontend
+frontend/node_modules
+frontend/dist
