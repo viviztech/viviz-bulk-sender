@@ -207,12 +207,34 @@ git push origin main
 
 ### Step 3: Create Redis Instance
 
-1. Click **"New +"** → **"Redis"**
-2. Configure:
+Render does not offer managed Redis. Use a free external provider like **Redis Cloud** or **Upstash**:
+
+#### Option A: Redis Cloud (Free Tier)
+
+1. Go to [Redis Cloud](https://redis.com/cloud/tryfree/)
+2. Sign up for free tier
+3. Create a database:
    - **Name**: `viviz-redis`
-   - **Plan**: Free tier or Starter ($7/month)
-3. Click **"Create Redis Instance"**
-4. Note the "Internal Redis URL" (you'll need this)
+   - **Plan**: Free (30MB)
+4. Note the connection URL (format: `redis://:password@host:port`)
+redis-10291.crce185.ap-seast-1-1.ec2.cloud.redislabs.com:10291
+
+#### Option B: Upstash (Free Tier)
+
+1. Go to [Upstash](https://upstash.com)
+2. Sign up and create a database
+3. Note the **Redis URL** from the console
+
+#### Option C: Render Redis (If Available)
+
+> ⚠️ Render Redis is deprecated. If you see the option:
+> 
+> 1. Click **"New +"** → **"Redis"**
+> 2. Configure:
+>    - **Name**: `viviz-redis`
+>    - **Plan**: Free tier or Starter ($7/month)
+> 3. Click **"Create Redis Instance"**
+> 4. Note the "Internal Redis URL"
 
 ### Step 4: Create Backend Web Service
 
@@ -231,8 +253,8 @@ git push origin main
 | `DEBUG` | `0` |
 | `SECRET_KEY` | Generate a strong secret key |
 | `DATABASE_URL` | PostgreSQL internal URL from Step 2 |
-| `REDIS_URL` | Redis internal URL from Step 3 |
-| `CELERY_BROKER_URL` | Redis internal URL from Step 3 |
+| `REDIS_URL` | Redis URL from Step 3 (Redis Cloud, Upstash, or other provider) |
+| `CELERY_BROKER_URL` | Same as REDIS_URL |
 | `GREEN_API_ID` | Your Green API instance ID |
 | `GREEN_API_TOKEN` | Your Green API instance token |
 | `JWT_SECRET_KEY` | Generate a strong JWT secret key |
