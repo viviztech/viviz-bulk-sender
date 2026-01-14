@@ -335,6 +335,7 @@ python -c "import secrets; print(secrets.token_urlsafe(50))"
    | **Name** | `viviz-backend` |
    | **Branch** | `main` |
    | **Runtime** | `Docker` |
+   | **Dockerfile Path** | `backend/Dockerfile.production` |
    | **Build Command** | (leave empty) |
    | **Start Command** | (leave empty) |
 
@@ -378,6 +379,7 @@ python -c "import secrets; print(secrets.token_urlsafe(50))"
    | **Name** | `viviz-frontend` |
    | **Branch** | `main` |
    | **Runtime** | `Docker` |
+   | **Dockerfile Path** | `frontend/Dockerfile.production` |
    | **Build Command** | (leave empty) |
    | **Start Command** | (leave empty) |
 
@@ -412,6 +414,7 @@ For background task processing (sending bulk messages):
    | **Name** | `viviz-celery-worker` |
    | **Branch** | `main` |
    | **Runtime** | `Docker` |
+   | **Dockerfile Path** | `backend/Dockerfile.production` |
    | **Start Command** | `celery -A config worker --loglevel=info` |
 
 3. **Add Environment Variables:**
