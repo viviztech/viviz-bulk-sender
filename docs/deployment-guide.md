@@ -5,11 +5,12 @@ This guide covers multiple deployment options for the Viviz Bulk Sender SaaS pla
 ## Table of Contents
 
 1. [Quick Start with Docker Compose](#1-quick-start-with-docker-compose)
-2. [DigitalOcean App Platform](#2-digitalocean-app-platform)
-3. [Hetzner Cloud](#3-hetzner-cloud)
-4. [AWS Elastic Beanstalk](#4-aws-elastic-beanstalk)
-5. [Google Cloud Run](#5-google-cloud-run)
-6. [Custom VPS with Nginx](#6-custom-vps-with-nginx)
+2. [Render](#2-render)
+3. [DigitalOcean App Platform](#3-digitalocean-app-platform)
+4. [Hetzner Cloud](#4-hetzner-cloud)
+5. [AWS Elastic Beanstalk](#5-aws-elastic-beanstalk)
+6. [Google Cloud Run](#6-google-cloud-run)
+7. [Custom VPS with Nginx](#7-custom-vps-with-nginx)
 
 ---
 
@@ -173,7 +174,159 @@ docker-compose -f docker-compose.production.yml up -d
 
 ---
 
-## 2. DigitalOcean App Platform
+## 2. Render
+
+Render is a cloud platform that simplifies deployment with built-in support for Docker, PostgreSQL, and Redis.
+
+### Prerequisites
+
+- GitHub account with repository access
+- Render account (free tier available)
+
+### Step 1: Push Code to GitHub
+
+```bash
+# Make sure your code is pushed to GitHub
+cd viviz-bulk-sender
+git add .
+git commit -m "Prepare for Render deployment"
+git push origin main
+```
+
+### Step 2: Create PostgreSQL Database
+
+1. Go to [Render Dashboard](https://dashboard.render.com)
+2. Click **"New +"** → **"PostgreSQL"**
+3. Configure:
+   - **Name**: `viviz-db`
+   - **Database**: `viviz_bulk_sender`
+   - **User**: `viviz`
+   - **Plan**: Free tier or Starter ($7/month)
+4. Click **"Create Database"**
+5. Note the "Internal Database URL" (you'll need this)
+
+### Step 3: Create Redis Instance
+
+1. Click **"New +"** → **"Redis"**
+2. Configure:
+   - **Name**: `viviz-redis`
+   - **Plan**: Free tier or Starter ($7/month)
+3. Click **"Create Redis Instance"**
+4. Note the "Internal Redis URL" (you'll need this)
+
+### Step 4: Create Backend Web Service
+
+1. Click **"New +"** → **"Web Service"**
+2. Connect your GitHub repository
+3. Configure:
+   - **Name**: `viviz-backend`
+   - **Branch**: `main`
+   - **Runtime**: `Docker"
+   - **Build Command**: Leave empty (Dockerfile handles it)
+   - **Start Command**: Leave empty (Dockerfile handles it)
+4. Click **"Advanced"** and add Environment Variables:
+
+| Key | Value |
+|-----|-------|
+| `DEBUG` | `0` |
+| `SECRET_KEY` | Generate a strong secret key |
+| `DATABASE_URL` | PostgreSQL internal URL from Step 2 |
+| `REDIS_URL` | Redis internal URL from Step 3 |
+| `CELERY_BROKER_URL` | Redis internal URL from Step 3 |
+| `GREEN_API_ID` | Your Green API instance ID |
+| `GREEN_API_TOKEN` | Your Green API instance token |
+| `JWT_SECRET_KEY` | Generate a strong JWT secret key |
+| `ALLOWED_HOSTS` | `*` (or your Render domain) |
+| `CORS_ALLOWED_ORIGINS` | `*` (or your frontend URL) |
+
+5. Click **"Create Web Service"**
+6. Wait for the build to complete
+
+### Step 5: Create Frontend Web Service
+
+1. Click **"New +"** → **"Web Service"**
+2. Connect your GitHub repository
+3. Configure:
+   - **Name**: `viviz-frontend`
+   - **Branch**: `main`
+   - **Runtime**: `Docker"
+   - **Build Command**: Leave empty (Dockerfile handles it)
+   - **Start Command**: Leave empty (Dockerfile handles it)
+4. Click **"Advanced"** and add Environment Variables:
+
+| Key | Value |
+|-----|-------|
+| `VITE_API_URL` | Backend service URL (e.g., `https://viviz-backend.onrender.com`) |
+
+5. Click **"Create Web Service"**
+
+### Step 6: Create Celery Worker (Optional)
+
+For background task processing:
+
+1. Click **"New +"** → **"Background Worker"**
+2. Configure:
+   - **Name**: `viviz-celery-worker`
+   - **Branch**: `main`
+   - **Runtime**: `Docker"
+   - **Start Command**: `celery -A config worker --loglevel=info`
+3. Add the same Environment Variables as the backend (Step 4)
+4. Click **"Create Background Worker"**
+
+### Step 7: Configure Green API Webhooks
+
+In Green API dashboard, set webhook URL to:
+```
+https://viviz-backend.onrender.com/api/v1/green-api/webhook/
+```
+
+### Step 8: Run Database Migrations
+
+1. Go to your backend service in Render dashboard
+2. Click **"Shell"** tab
+3. Run:
+```bash
+python manage.py migrate
+```
+
+### Step 9: Create Superuser
+
+1. In the Shell tab, run:
+```bash
+python manage.py createsuperuser
+```
+2. Follow prompts to create admin user
+
+### Step 10: Configure Custom Domain (Optional)
+
+1. Go to your service settings
+2. Click **"Custom Domains"** → **"Add Domain"**
+3. Enter your domain and follow DNS instructions
+4. Repeat for both backend and frontend services
+
+### Step 11: Update Environment Variables for Production
+
+After initial deployment, update environment variables:
+
+| Key | Value |
+|-----|-------|
+| `DEBUG` | `0` |
+| `ALLOWED_HOSTS` | Your custom domain(s) |
+| `CORS_ALLOWED_ORIGINS` | Your frontend domain(s) |
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Build fails with pip error | Check `requirements.txt` for invalid packages |
+| Database connection error | Verify `DATABASE_URL` format and database is ready |
+| 502 Bad Gateway | Check backend service logs for errors |
+| Static files not loading | Run `python manage.py collectstatic` in Shell |
+| Celery worker failing | Check Redis URL and worker logs |
+
+---
+
+## 3. DigitalOcean App Platform
 
 ### Step 1: Prepare Your Repository
 
