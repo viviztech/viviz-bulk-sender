@@ -176,175 +176,413 @@ docker-compose -f docker-compose.production.yml up -d
 
 ## 2. Render
 
-Render is a cloud platform that simplifies deployment with built-in support for Docker, PostgreSQL, and Redis.
+Render is a cloud platform that offers free tier for web services and PostgreSQL. This guide covers complete deployment with backend, frontend, and background workers.
 
 ### Prerequisites
 
 - GitHub account with repository access
-- Render account (free tier available)
+- Render account (free tier available for web services, $7/month for PostgreSQL)
 
-### Step 1: Push Code to GitHub
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Render                                │
+│  ┌─────────────────┐    ┌─────────────────┐                 │
+│  │  viviz-backend  │───▶│  PostgreSQL     │                 │
+│  │  (Web Service)  │    │  ($7/month)     │                 │
+│  └─────────────────┘    └─────────────────┘                 │
+│          │                                                    │
+│          │    ┌─────────────────┐                           │
+│          └───▶│  External       │                           │
+│               │  Redis          │                           │
+│               │  (Upstash/      │                           │
+│               │   Redis Cloud)  │                           │
+│               └─────────────────┘                           │
+│                                                            │
+│  ┌─────────────────┐    ┌─────────────────┐                 │
+│  │ viviz-frontend  │    │ viviz-celery    │                 │
+│  │  (Web Service)  │    │  (Background    │                 │
+│  └─────────────────┘    │   Worker)        │                 │
+│                         └─────────────────┘                 │
+└─────────────────────────────────────────────────────────────┘
+
+Frontend → API Calls → Backend → Redis (Celery) → Database
+```
+
+---
+
+### Step 1: Prepare Your Repository
 
 ```bash
 # Make sure your code is pushed to GitHub
 cd viviz-bulk-sender
+git status
 git add .
 git commit -m "Prepare for Render deployment"
 git push origin main
 ```
 
+**Verify your repository structure:**
+```
+viviz-bulk-sender/
+├── backend/
+│   ├── Dockerfile.production  ✅ Already created
+│   ├── requirements.txt       ✅ Already fixed
+│   └── ...
+├── frontend/
+│   ├── Dockerfile.production  ✅ Already created
+│   ├── nginx.conf            ✅ Already created
+│   └── ...
+└── .dockerignore             ✅ Already created
+```
+
+---
+
 ### Step 2: Create PostgreSQL Database
+
+> **Note:** Render's free tier doesn't include PostgreSQL. You'll need the $7/month Starter plan or use an external provider.
+
+#### Option A: Render PostgreSQL (Recommended)
 
 1. Go to [Render Dashboard](https://dashboard.render.com)
 2. Click **"New +"** → **"PostgreSQL"**
 3. Configure:
-   - **Name**: `viviz-db`
-   - **Database**: `viviz_bulk_sender`
-   - **User**: `viviz`
-   - **Plan**: Free tier or Starter ($7/month)
+   | Field | Value |
+   |-------|-------|
+   | **Name** | `viviz-db` |
+   | **Database** | `viviz_bulk_sender` |
+   | **User** | `viviz` |
+   | **Plan** | Starter ($7/month) |
+   | **Region** | Oregon (or closest to you) |
 4. Click **"Create Database"**
-5. Note the "Internal Database URL" (you'll need this)
+5. **Wait 2-3 minutes** for provisioning
+6. In the **"Connections"** section, note:
+   - **Internal Database URL**: `postgres://user:password@host:5432/dbname`
+   - **External Database URL**: `postgres://user:password@host:5432/dbname` (for local development)
+
+#### Option B: External PostgreSQL (Free)
+
+If you want to avoid the $7/month, use a free external provider:
+
+- **Supabase** (https://supabase.com) - Free tier available
+- **Neon** (https://neon.tech) - Free tier available
+- **Railway** (https://railway.app) - $5 credit/month
+
+---
 
 ### Step 3: Create Redis Instance
 
-Render does not offer managed Redis. Use a free external provider like **Redis Cloud** or **Upstash**:
+> ⚠️ **Render does NOT offer managed Redis** (the service is deprecated). Use an external free provider:
 
-#### Option A: Redis Cloud (Free Tier)
+#### Option A: Upstash (Recommended - Free Tier)
+
+1. Go to [Upstash Console](https://console.upstash.com)
+2. Click **"Create Database"**
+3. Configure:
+   | Field | Value |
+   |-------|-------|
+   | **Name** | `viviz-redis` |
+   | **Region** | Choose closest to Render region |
+   | **Plan** | Free |
+4. Click **"Create"**
+5. In **"REST API"** tab, copy the **Redis URL**:
+   ```
+   redis://default:password@your-redis-host.upstash.io:6379
+   ```
+
+#### Option B: Redis Cloud (Free Tier)
 
 1. Go to [Redis Cloud](https://redis.com/cloud/tryfree/)
-2. Sign up for free tier
-3. Create a database:
-   - **Name**: `viviz-redis`
-   - **Plan**: Free (30MB)
-4. Note the connection URL (format: `redis://:password@host:port`)
-redis-10291.crce185.ap-seast-1-1.ec2.cloud.redislabs.com:10291
+2. Sign up and verify email
+3. Click **"Create Database"**:
+   | Field | Value |
+   |-------|-------|
+   | **Name** | `viviz-redis` |
+   | **Plan** | Fixed (30MB) - Free |
+4. Click **"Create"**
+5. In **"Configuration"** tab, copy the **Endpoint** URL
 
-#### Option B: Upstash (Free Tier)
+---
 
-1. Go to [Upstash](https://upstash.com)
-2. Sign up and create a database
-3. Note the **Redis URL** from the console
+### Step 4: Generate Required Secrets
 
-#### Option C: Render Redis (If Available)
+Before creating services, generate secure random keys:
 
-> ⚠️ Render Redis is deprecated. If you see the option:
-> 
-> 1. Click **"New +"** → **"Redis"**
-> 2. Configure:
->    - **Name**: `viviz-redis`
->    - **Plan**: Free tier or Starter ($7/month)
-> 3. Click **"Create Redis Instance"**
-> 4. Note the "Internal Redis URL"
+```bash
+# Generate SECRET_KEY (at least 50 characters)
+python -c "import secrets; print(secrets.token_urlsafe(50))"
+# Output: abc123... (copy this)
 
-### Step 4: Create Backend Web Service
-
-1. Click **"New +"** → **"Web Service"**
-2. Connect your GitHub repository
-3. Configure:
-   - **Name**: `viviz-backend`
-   - **Branch**: `main`
-   - **Runtime**: `Docker"
-   - **Build Command**: Leave empty (Dockerfile handles it)
-   - **Start Command**: Leave empty (Dockerfile handles it)
-4. Click **"Advanced"** and add Environment Variables:
-
-| Key | Value |
-|-----|-------|
-| `DEBUG` | `0` |
-| `SECRET_KEY` | Generate a strong secret key |
-| `DATABASE_URL` | PostgreSQL internal URL from Step 2 |
-| `REDIS_URL` | Redis URL from Step 3 (Redis Cloud, Upstash, or other provider) |
-| `CELERY_BROKER_URL` | Same as REDIS_URL |
-| `GREEN_API_ID` | Your Green API instance ID |
-| `GREEN_API_TOKEN` | Your Green API instance token |
-| `JWT_SECRET_KEY` | Generate a strong JWT secret key |
-| `ALLOWED_HOSTS` | `*` (or your Render domain) |
-| `CORS_ALLOWED_ORIGINS` | `*` (or your frontend URL) |
-
-5. Click **"Create Web Service"**
-6. Wait for the build to complete
-
-### Step 5: Create Frontend Web Service
-
-1. Click **"New +"** → **"Web Service"**
-2. Connect your GitHub repository
-3. Configure:
-   - **Name**: `viviz-frontend`
-   - **Branch**: `main`
-   - **Runtime**: `Docker"
-   - **Build Command**: Leave empty (Dockerfile handles it)
-   - **Start Command**: Leave empty (Dockerfile handles it)
-4. Click **"Advanced"** and add Environment Variables:
-
-| Key | Value |
-|-----|-------|
-| `VITE_API_URL` | Backend service URL (e.g., `https://viviz-backend.onrender.com`) |
-
-5. Click **"Create Web Service"**
-
-### Step 6: Create Celery Worker (Optional)
-
-For background task processing:
-
-1. Click **"New +"** → **"Background Worker"**
-2. Configure:
-   - **Name**: `viviz-celery-worker`
-   - **Branch**: `main`
-   - **Runtime**: `Docker"
-   - **Start Command**: `celery -A config worker --loglevel=info`
-3. Add the same Environment Variables as the backend (Step 4)
-4. Click **"Create Background Worker"**
-
-### Step 7: Configure Green API Webhooks
-
-In Green API dashboard, set webhook URL to:
+# Generate JWT_SECRET_KEY
+python -c "import secrets; print(secrets.token_urlsafe(50))"
+# Output: xyz789... (copy this)
 ```
-https://viviz-backend.onrender.com/api/v1/green-api/webhook/
-```
+
+---
+
+### Step 5: Create Backend Web Service
+
+1. **Create Backend Service:**
+   - Go to Render Dashboard → **"New +"** → **"Web Service"**
+   - Connect your GitHub repository
+   - Select the `viviz-bulk-sender` repository
+
+2. **Configure Service:**
+   | Field | Value |
+   |-------|-------|
+   | **Name** | `viviz-backend` |
+   | **Branch** | `main` |
+   | **Runtime** | `Docker` |
+   | **Build Command** | (leave empty) |
+   | **Start Command** | (leave empty) |
+
+3. **Add Environment Variables:**
+   Click **"Advanced"** → **"Add Environment Variables"**:
+
+   | Key | Value | Description |
+   |-----|-------|-------------|
+   | `DEBUG` | `0` | Production mode |
+   | `SECRET_KEY` | `[生成的SECRET_KEY]` | Django secret key |
+   | `JWT_SECRET_KEY` | `[生成的JWT_SECRET_KEY]` | JWT signing key |
+   | `DATABASE_URL` | `[PostgreSQL Internal URL]` | From Step 2 |
+   | `REDIS_URL` | `[Upstash/Redis Cloud URL]` | From Step 3 |
+   | `CELERY_BROKER_URL` | `[Same as REDIS_URL]` | Celery broker |
+   | `GREEN_API_ID` | `[Your Green API ID]` | Green API instance ID |
+   | `GREEN_API_TOKEN` | `[Your Green API Token]` | Green API instance token |
+   | `ALLOWED_HOSTS` | `*` | Or your custom domain |
+   | `CORS_ALLOWED_ORIGINS` | `*` | Or your frontend URL |
+
+4. **Create Service:**
+   - Click **"Create Web Service"**
+   - Wait for build (3-5 minutes)
+   - Check **"Logs"** tab for progress
+
+5. **Verify Backend:**
+   - Once deployed, visit: `https://viviz-backend.onrender.com`
+   - Should see Django welcome page or API response
+
+---
+
+### Step 6: Create Frontend Web Service
+
+1. **Create Frontend Service:**
+   - Go to Render Dashboard → **"New +"** → **"Web Service"**
+   - Connect your GitHub repository
+   - Select the `viviz-bulk-sender` repository
+
+2. **Configure Service:**
+   | Field | Value |
+   |-------|-------|
+   | **Name** | `viviz-frontend` |
+   | **Branch** | `main` |
+   | **Runtime** | `Docker` |
+   | **Build Command** | (leave empty) |
+   | **Start Command** | (leave empty) |
+
+3. **Add Environment Variable:**
+   Click **"Advanced"** → **"Add Environment Variables"**:
+
+   | Key | Value |
+   |-----|-------|
+   | `VITE_API_URL` | `https://viviz-backend.onrender.com` |
+
+4. **Create Service:**
+   - Click **"Create Web Service"**
+   - Wait for build (2-3 minutes)
+
+5. **Verify Frontend:**
+   - Visit: `https://viviz-frontend.onrender.com`
+   - Should see the Viviz Bulk Sender login page
+
+---
+
+### Step 7: Create Celery Background Worker (Optional)
+
+For background task processing (sending bulk messages):
+
+1. **Create Worker:**
+   - Go to Render Dashboard → **"New +"** → **"Background Worker"**
+   - Connect your GitHub repository
+
+2. **Configure Worker:**
+   | Field | Value |
+   |-------|-------|
+   | **Name** | `viviz-celery-worker` |
+   | **Branch** | `main` |
+   | **Runtime** | `Docker` |
+   | **Start Command** | `celery -A config worker --loglevel=info` |
+
+3. **Add Environment Variables:**
+   Copy ALL environment variables from the backend service (Step 5.3)
+
+4. **Create Worker:**
+   - Click **"Create Background Worker"**
+   - Worker will start processing background tasks
+
+---
 
 ### Step 8: Run Database Migrations
 
-1. Go to your backend service in Render dashboard
-2. Click **"Shell"** tab
-3. Run:
-```bash
-python manage.py migrate
-```
+1. Go to **viviz-backend** service → **"Shell"** tab
+2. Run:
+   ```bash
+   python manage.py migrate
+   ```
+3. Wait for migrations to complete
+
+---
 
 ### Step 9: Create Superuser
 
-1. In the Shell tab, run:
-```bash
-python manage.py createsuperuser
-```
-2. Follow prompts to create admin user
+1. In the **Shell** tab, run:
+   ```bash
+   python manage.py createsuperuser
+   ```
+2. Enter:
+   - **Email**: your-email@example.com
+   - **Username**: admin
+   - **Password**: (strong password)
 
-### Step 10: Configure Custom Domain (Optional)
+3. Access admin panel: `https://viviz-backend.onrender.com/admin/`
 
-1. Go to your service settings
-2. Click **"Custom Domains"** → **"Add Domain"**
-3. Enter your domain and follow DNS instructions
-4. Repeat for both backend and frontend services
+---
+
+### Step 10: Configure Green API Webhooks
+
+1. Go to [Green API Dashboard](https://green-api.com/)
+2. Open your instance settings
+3. Set **Webhook URL**:
+   ```
+   https://viviz-backend.onrender.com/api/v1/green-api/webhook/
+   ```
+4. Save settings
+
+---
 
 ### Step 11: Update Environment Variables for Production
 
-After initial deployment, update environment variables:
+After successful deployment, update environment variables for better security:
 
-| Key | Value |
-|-----|-------|
-| `DEBUG` | `0` |
-| `ALLOWED_HOSTS` | Your custom domain(s) |
-| `CORS_ALLOWED_ORIGINS` | Your frontend domain(s) |
+**Backend Service → Environment Variables:**
+
+| Key | New Value |
+|-----|----------|
+| `ALLOWED_HOSTS` | `viviz-frontend.onrender.com,yourdomain.com` |
+| `CORS_ALLOWED_ORIGINS` | `https://viviz-frontend.onrender.com,https://yourdomain.com` |
+
+**Click "Save Changes" and trigger a redeploy.**
+
+---
+
+### Step 12: Configure Custom Domain (Optional)
+
+**Backend:**
+1. Go to **viviz-backend** → **Settings**
+2. Scroll to **"Custom Domains"**
+3. Click **"Add Domain"**
+4. Enter: `api.yourdomain.com`
+5. Follow DNS instructions (add CNAME or A record)
+
+**Frontend:**
+1. Go to **viviz-frontend** → **Settings**
+2. Scroll to **"Custom Domains"**
+3. Click **"Add Domain"**
+4. Enter: `yourdomain.com`
+5. Follow DNS instructions
+
+---
 
 ### Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Build fails with pip error | Check `requirements.txt` for invalid packages |
-| Database connection error | Verify `DATABASE_URL` format and database is ready |
-| 502 Bad Gateway | Check backend service logs for errors |
-| Static files not loading | Run `python manage.py collectstatic` in Shell |
-| Celery worker failing | Check Redis URL and worker logs |
+#### Error: `Exit Code 128` (Git Clone Failed)
+
+**Cause:** Render cannot clone your repository.
+
+**Solutions:**
+1. **Reconnect GitHub:**
+   - Go to Service → **Settings** → **GitHub**
+   - Click **"Disconnect"** then **"Connect"**
+   - Re-authorize and select repository
+
+2. **Check Repository Access:**
+   - Go to [GitHub Settings → Applications](https://github.com/settings/installations)
+   - Ensure **Render** has access to `viviz-tech/viviz-bulk-sender`
+
+3. **Delete and Recreate Service:**
+   - Delete the failing service
+   - Create a new service with fresh GitHub connection
+
+#### Error: `pip install failed`
+
+**Cause:** Invalid package in requirements.txt
+
+**Solutions:**
+1. Check requirements.txt for typos or non-existent packages
+2. The following have been fixed:
+   - ❌ `uuid>=1.30` (removed - built-in Python module)
+   - ❌ `django-rest-framework-simplejwt-cached-claims>=1.1.2` (removed - doesn't exist)
+
+#### Error: `Database connection failed`
+
+**Cause:** Incorrect DATABASE_URL or database not ready
+
+**Solutions:**
+1. Verify PostgreSQL status is "Available" (green dot)
+2. Copy **Internal Database URL** from Connections section
+3. Ensure URL format: `postgres://user:password@host:5432/dbname`
+
+#### Error: `502 Bad Gateway`
+
+**Cause:** Backend service failed or not responding
+
+**Solutions:**
+1. Check **Logs** tab for errors
+2. Verify all environment variables are set
+3. Check if Gunicorn started correctly
+
+#### Error: `Static files not loading`
+
+**Solution:**
+1. Go to **Shell** tab
+2. Run: `python manage.py collectstatic`
+3. Static files will be served from the backend service
+
+---
+
+### Complete Environment Variables Summary
+
+**Backend Service:**
+```
+DEBUG=0
+SECRET_KEY=[generate with: python -c "import secrets; print(secrets.token_urlsafe(50))"]
+JWT_SECRET_KEY=[generate with: python -c "import secrets; print(secrets.token_urlsafe(50))"]
+DATABASE_URL=postgres://user:password@host:5432/dbname
+REDIS_URL=redis://:password@host:6379
+CELERY_BROKER_URL=${REDIS_URL}
+GREEN_API_ID=your-instance-id
+GREEN_API_TOKEN=your-instance-token
+ALLOWED_HOSTS=*
+CORS_ALLOWED_ORIGINS=*
+```
+
+**Frontend Service:**
+```
+VITE_API_URL=https://viviz-backend.onrender.com
+```
+
+---
+
+### Estimated Monthly Cost
+
+| Service | Plan | Monthly Cost |
+|---------|------|-------------|
+| Backend | Free (Docker) | $0 |
+| Frontend | Free (Docker) | $0 |
+| PostgreSQL | Starter | $7 |
+| Redis | Upstash Free | $0 |
+| Celery Worker | Free (Docker) | $0 |
+| **Total** | | **$7/month**
 
 ---
 
