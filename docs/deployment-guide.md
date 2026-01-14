@@ -182,6 +182,7 @@ Render is a cloud platform that offers free tier for web services and PostgreSQL
 
 - GitHub account with repository access
 - Render account (free tier available for web services, $7/month for PostgreSQL)
+- **Python 3.11** (configured in Dockerfile)
 
 ### Architecture Overview
 
