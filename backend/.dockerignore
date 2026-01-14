@@ -36,3 +36,7 @@ staticfiles
 
 # Database
 db.sqlite3
+
+# Frontend (not needed in backend image)
+../frontend
+frontend
